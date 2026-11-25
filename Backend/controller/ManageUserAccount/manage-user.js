@@ -1,0 +1,240 @@
+const WaterConnection = require('../../model/WaterConnection')
+const Resident = require('../../model/Resident')
+const Personnel = require('../../model/Personnel')
+const User = require('../../model/User')
+const { UnauthorizedError, BadRequestError } = require('../../errors')
+
+// Get all residents (for admin)
+const getAllResidents = async (req, res) => {
+  try {
+    const { status, search } = req.query;
+    
+    // Build filter query
+    let filter = {};
+    if (status && status !== 'all') {
+      filter.status = status;
+    }
+    
+    // Fetch all residents with their water connections
+    const residents = await Resident.find(filter)
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .lean();
+    
+    // Get water connections for each resident
+    const residentsWithConnections = await Promise.all(
+      residents.map(async (resident) => {
+        const connection = await WaterConnection.findOne({ resident_id: resident._id });
+        return {
+          ...resident,
+          meter_number: connection?.meter_no || null,
+          zone: resident.zone || null,
+          purok: resident.purok || null,
+          connection_status: connection?.connection_status || null
+        };
+      })
+    );
+    
+    res.status(200).json({
+      success: true,
+      users: residentsWithConnections,
+      count: residentsWithConnections.length
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getUserAccount = async (req, res) => {
+  
+  const user = req.user  // this comes from your auth middleware
+
+  if (!user) {
+    throw new UnauthorizedError('Invalid Account')
+  }
+
+  let userData
+
+  if (user.role === 'resident') {
+    // Fetch resident with their water connection
+    const resident = await Resident.findOne({user_id: user.userId})
+    if (!resident) {
+      throw new BadRequestError('Resident not found')
+    }
+
+    const connection = await WaterConnection.findOne({ resident_id: resident._id })
+
+    userData = {
+      id: resident._id,
+      fullname: `${resident.first_name} ${resident.last_name}`, 
+      username: resident.username,
+      role: resident.role,
+      meter_no: connection?.meter_no || null,
+      status: connection?.connection_status || null,
+      purok: resident?.purok || null,
+      zone: resident?.zone || null,
+    }
+
+  } else if (user.role === 'treasurer' || user.role === 'admin' || user.role === 'meter_reader' || user.role === 'secretary' || user.role === 'maintenance') {
+   
+    // Fetch personnel
+    const personnel = await Personnel.findOne({user_id: user.userId})
+    if (!personnel) {
+      throw new BadRequestError('Personnel not found')
+    } 
+
+    userData = {
+      id: personnel._id,
+      fullname: `${personnel.first_name} ${personnel.last_name}`, 
+      username: personnel.username,
+      role: personnel.role,
+      assigned_zone: personnel.assigned_zone
+    }
+  } else {
+    throw new UnauthorizedError('Unknown role')
+  }
+
+  return res.status(200).json({
+    success: true,
+    user: userData
+  })
+}
+
+const checkEmailExists = async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+
+    if (!email || email.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required'
+      });
+    }
+
+    // Check if email exists in Resident table
+    const resident = await Resident.findOne({ email: email.trim() });
+    if (resident) {
+      return res.status(409).json({
+        success: false,
+        exists: true,
+        message: 'Email already exists'
+      });
+    }
+
+    // Check if email exists in Personnel table
+    const personnel = await Personnel.findOne({ email: email.trim() });
+    if (personnel) {
+      return res.status(409).json({
+        success: false,
+        exists: true,
+        message: 'Email already exists'
+      });
+    }
+
+    // Email does not exist
+    return res.status(200).json({
+      success: true,
+      exists: false,
+      message: 'Email is available'
+    });
+  } catch (error) {
+    console.error('Error checking email:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error checking email availability'
+    });
+  }
+};
+
+const checkFullNameExists = async (req, res) => {
+  try {
+    const firstName = decodeURIComponent(req.query.firstName || '').trim();
+    const lastName = decodeURIComponent(req.query.lastName || '').trim();
+
+    if (!firstName || !lastName) {
+      return res.status(400).json({
+        success: false,
+        message: 'First name and last name are required'
+      });
+    }
+
+    // Case-insensitive search
+    const resident = await Resident.findOne({
+      first_name: { $regex: `^${firstName}$`, $options: 'i' },
+      last_name: { $regex: `^${lastName}$`, $options: 'i' }
+    });
+
+    if (resident) {
+      return res.status(409).json({
+        success: false,
+        exists: true,
+        message: 'Resident already exists'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      exists: false,
+      message: 'Resident name is available'
+    });
+
+  } catch (error) {
+    console.error('Error checking full name:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error checking resident name'
+    });
+  }
+};
+
+const checkPhoneNumberExists = async (req, res) => {
+  try {
+    const phoneNumber = decodeURIComponent(req.params.phone || '').trim();
+
+    if (!phoneNumber || phoneNumber === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone number is required'
+      });
+    }
+
+    // Check if phone number exists in Resident table
+    const resident = await Resident.findOne({ contact_no: phoneNumber });
+    if (resident) {
+      return res.status(409).json({
+        success: false,
+        exists: true,
+        message: 'Phone number already exists'
+      });
+    }
+
+    // Check if phone number exists in Personnel table
+    const personnel = await Personnel.findOne({ contact_no: phoneNumber });
+    if (personnel) {
+      return res.status(409).json({
+        success: false,
+        exists: true,
+        message: 'Phone number already exists'
+      });
+    }
+
+    // Phone number does not exist
+    return res.status(200).json({
+      success: true,
+      exists: false,
+      message: 'Phone number is available'
+    });
+  } catch (error) {
+    console.error('Error checking phone number:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error checking phone number availability'
+    });
+  }
+};
+
+
+module.exports = { getUserAccount, getAllResidents, checkEmailExists, checkFullNameExists, checkPhoneNumberExists }

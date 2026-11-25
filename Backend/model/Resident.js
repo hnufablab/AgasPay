@@ -1,0 +1,70 @@
+const mongoose = require('mongoose');
+
+const ResidentSchema = new mongoose.Schema(
+  {
+    user_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: [true, 'Please provide a user']
+    },
+    first_name: {
+      type: String,
+      required: [true, 'First name cannot be empty']
+    },
+    last_name: {
+      type: String,
+      required: [true, 'Last name cannot be empty']
+    },
+    zone: {
+      type: String,
+      enum: ["1", "2", "3"],
+      required: [true, 'Zone is required']
+    },
+    purok: {
+      type: String,
+      enum: ["1", "2", "3", "4", "5", "6", "7"],
+      required: [true, 'Purok is required']
+    },
+   email: {
+  type: String,
+  required: false,
+  unique: true,
+  sparse: true, // optional, but safer
+  default: null, // 👈 treat missing email as null
+  match: [
+    /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/,
+    'Please provide a valid email'
+  ]
+},
+
+    contact_no: {
+      type: String,
+      required: [true, 'Contact number cannot be empty'],
+      match: [/^09\d{9}$/, 'Please enter a valid PH number (e.g., 09XXXXXXXXX)']
+    },
+    status: {
+      type: String,
+      enum: ['active', 'inactive'],
+      default: 'active'
+    },
+    // ✅ Fields for email update verification
+    pending_email: {
+      type: String,
+      default: null
+    },
+    email_verification_code: {
+      type: String,
+      default: null
+    },
+    email_verification_expires: {
+      type: Date,
+      default: null
+    },
+    created_at: {
+      type: Date,
+      default: Date.now
+    }
+  }
+);
+
+module.exports = mongoose.model('Resident', ResidentSchema);
